@@ -1,17 +1,17 @@
 {
   "files": {
     "main.css": "/cycling-progress-tracker/static/css/main.c2dd2223.css",
-    "main.js": "/cycling-progress-tracker/static/js/main.0a99c9be.js",
+    "main.js": "/cycling-progress-tracker/static/js/main.ce843a5f.js",
     "static/js/488.a5ec413e.chunk.js": "/cycling-progress-tracker/static/js/488.a5ec413e.chunk.js",
     "static/media/btn_strava_connectwith_orange.svg": "/cycling-progress-tracker/static/media/btn_strava_connectwith_orange.d61a51baedcfa2ed12801e956175a0ba.svg",
     "static/media/api_logo_pwrdBy_strava_horiz_light.svg": "/cycling-progress-tracker/static/media/api_logo_pwrdBy_strava_horiz_light.b926f0af6f0f0574c8229ae69c72a9f5.svg",
     "index.html": "/cycling-progress-tracker/index.html",
     "main.c2dd2223.css.map": "/cycling-progress-tracker/static/css/main.c2dd2223.css.map",
-    "main.0a99c9be.js.map": "/cycling-progress-tracker/static/js/main.0a99c9be.js.map",
+    "main.ce843a5f.js.map": "/cycling-progress-tracker/static/js/main.ce843a5f.js.map",
     "488.a5ec413e.chunk.js.map": "/cycling-progress-tracker/static/js/488.a5ec413e.chunk.js.map"
   },
   "entrypoints": [
     "static/css/main.c2dd2223.css",
-    "static/js/main.0a99c9be.js"
+    "static/js/main.ce843a5f.js"
   ]
 }
