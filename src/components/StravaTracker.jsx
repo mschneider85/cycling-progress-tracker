@@ -88,21 +88,32 @@ const StravaTracker = () => {
   const fetchActivities = async (token) => {
     try {
       const startOfYear = new Date(new Date().getFullYear(), 0, 1).getTime() / 1000;
-      
-      const response = await fetch(
-        `https://www.strava.com/api/v3/athlete/activities?after=${startOfYear}&per_page=200`,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        }
-      );
+      let page = 1;
+      let allActivities = [];
+      let hasMoreActivities = true;
 
-      const activities = await response.json();
-      
-      const totalDistance = activities.reduce((sum, activity) => {
+      while (hasMoreActivities) {
+        const response = await fetch(
+          `https://www.strava.com/api/v3/athlete/activities?after=${startOfYear}&per_page=200&page=${page}`,
+          {
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+          }
+        );
+
+        const activities = await response.json();
+        if (activities.length > 0) {
+          allActivities = allActivities.concat(activities);
+          page++;
+        } else {
+          hasMoreActivities = false;
+        }
+      }
+
+      const totalDistance = allActivities.reduce((sum, activity) => {
         if (isCyclingActivity(activity.type)) {
-          return sum + (activity.distance / 1000);
+          return sum + activity.distance / 1000;
         }
         return sum;
       }, 0);
