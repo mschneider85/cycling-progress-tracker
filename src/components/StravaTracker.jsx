@@ -14,7 +14,12 @@ const DEFAULT_GOAL = 10000;
 const StravaTracker = () => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [totalKm, setTotalKm] = useState(0);
-  const [accessToken, setAccessToken] = useState(null);
+  const [accessToken, setAccessToken] = useState(() => {
+    return localStorage.getItem('stravaAccessToken');
+  });
+  const [refreshToken, setRefreshToken] = useState(() => {
+    return localStorage.getItem('stravaRefreshToken');
+  });
   const [isEditingGoal, setIsEditingGoal] = useState(false);
   const [yearGoal, setYearGoal] = useState(() => {
     const savedGoal = localStorage.getItem('cyclingYearGoal');
@@ -22,17 +27,144 @@ const StravaTracker = () => {
   });
 
   useEffect(() => {
-    const urlParams = new URLSearchParams(window.location.search);
-    const authCode = urlParams.get('code');
+    if (accessToken) {
+      setIsAuthenticated(true);
+      fetchActivities();
+    } else {
+      const urlParams = new URLSearchParams(window.location.search);
+      const authCode = urlParams.get('code');
 
-    if (authCode && !isAuthenticated) {
-      exchangeToken(authCode);
+      if (authCode && !isAuthenticated) {
+        exchangeToken(authCode);
+      }
     }
-  }, []);
+  }, [accessToken]);
 
   useEffect(() => {
     localStorage.setItem('cyclingYearGoal', yearGoal.toString());
   }, [yearGoal]);
+
+  const refreshAccessToken = async () => {
+    if (!refreshToken) {
+      console.error('No refresh token available. User needs to reauthenticate.');
+      handleLogout();
+      return;
+    }
+
+    try {
+      const response = await fetch('https://www.strava.com/oauth/token', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          client_id: CLIENT_ID,
+          client_secret: CLIENT_SECRET,
+          grant_type: 'refresh_token',
+          refresh_token: refreshToken,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (data.access_token && data.refresh_token) {
+        setAccessToken(data.access_token);
+        setRefreshToken(data.refresh_token);
+        localStorage.setItem('stravaAccessToken', data.access_token);
+        localStorage.setItem('stravaRefreshToken', data.refresh_token);
+      } else {
+        console.error('Failed to refresh access token. User needs to reauthenticate.');
+        handleLogout();
+      }
+    } catch (error) {
+      console.error('Error refreshing access token:', error);
+      handleLogout();
+    }
+  };
+
+  const exchangeToken = async (code) => {
+    try {
+      const response = await fetch('https://www.strava.com/oauth/token', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          client_id: CLIENT_ID,
+          client_secret: CLIENT_SECRET,
+          code,
+          grant_type: 'authorization_code',
+        }),
+      });
+
+      const data = await response.json();
+      setAccessToken(data.access_token);
+      setRefreshToken(data.refresh_token);
+      localStorage.setItem('stravaAccessToken', data.access_token);
+      localStorage.setItem('stravaRefreshToken', data.refresh_token);
+      setIsAuthenticated(true);
+      fetchActivities();
+
+      // Remove query parameters from the URL
+      const newUrl = window.location.origin + window.location.pathname;
+      window.history.replaceState({}, '', newUrl);
+    } catch (error) {
+      console.error('Error exchanging token:', error);
+    }
+  };
+
+  const fetchActivities = async () => {
+    if (!accessToken) return;
+
+    try {
+      const startOfYear = new Date(new Date().getFullYear(), 0, 1).getTime() / 1000;
+      let page = 1;
+      let allActivities = [];
+      let hasMoreActivities = true;
+
+      while (hasMoreActivities) {
+        const response = await fetch(
+          `https://www.strava.com/api/v3/athlete/activities?after=${startOfYear}&per_page=200&page=${page}`,
+          {
+            headers: {
+              Authorization: `Bearer ${accessToken}`,
+            },
+          }
+        );
+
+        if (response.status === 401) {
+          // Access token is invalid or expired, refresh it
+          await refreshAccessToken();
+          return fetchActivities(); // Retry after refreshing the token
+        }
+
+        const activities = await response.json();
+        if (activities.errors && activities.errors.some(err => err.code === 'invalid')) {
+          console.error('Invalid access token. User needs to reauthenticate.');
+          handleLogout();
+          return;
+        }
+
+        if (activities.length > 0) {
+          allActivities = allActivities.concat(activities);
+          page++;
+        } else {
+          hasMoreActivities = false;
+        }
+      }
+
+      const totalDistance = allActivities.reduce((sum, activity) => {
+        if (isCyclingActivity(activity.type)) {
+          return sum + activity.distance / 1000;
+        }
+        return sum;
+      }, 0);
+
+      setTotalKm(totalDistance);
+    } catch (error) {
+      console.error('Error fetching activities:', error);
+    }
+  };
 
   const handleGoalChange = (event) => {
     const newGoal = parseInt(event.target.value) || 0;
@@ -57,76 +189,17 @@ const StravaTracker = () => {
     return cyclingTypes.includes(activityType);
   };
 
-  const exchangeToken = async (code) => {
-    try {
-      const response = await fetch('https://www.strava.com/oauth/token', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          client_id: CLIENT_ID,
-          client_secret: CLIENT_SECRET,
-          code,
-          grant_type: 'authorization_code',
-        }),
-      });
-
-      const data = await response.json();
-      setAccessToken(data.access_token);
-      setIsAuthenticated(true);
-      fetchActivities(data.access_token);
-
-      // Remove query parameters from the URL
-      const newUrl = window.location.origin + window.location.pathname;
-      window.history.replaceState({}, '', newUrl);
-    } catch (error) {
-      console.error('Error exchanging token:', error);
-    }
-  };
-
-  const fetchActivities = async (token) => {
-    try {
-      const startOfYear = new Date(new Date().getFullYear(), 0, 1).getTime() / 1000;
-      let page = 1;
-      let allActivities = [];
-      let hasMoreActivities = true;
-
-      while (hasMoreActivities) {
-        const response = await fetch(
-          `https://www.strava.com/api/v3/athlete/activities?after=${startOfYear}&per_page=200&page=${page}`,
-          {
-            headers: {
-              Authorization: `Bearer ${token}`,
-            },
-          }
-        );
-
-        const activities = await response.json();
-        if (activities.length > 0) {
-          allActivities = allActivities.concat(activities);
-          page++;
-        } else {
-          hasMoreActivities = false;
-        }
-      }
-
-      const totalDistance = allActivities.reduce((sum, activity) => {
-        if (isCyclingActivity(activity.type)) {
-          return sum + activity.distance / 1000;
-        }
-        return sum;
-      }, 0);
-
-      setTotalKm(totalDistance);
-    } catch (error) {
-      console.error('Error fetching activities:', error);
-    }
-  };
-
   const handleLogin = () => {
     const authUrl = `https://www.strava.com/oauth/authorize?client_id=${CLIENT_ID}&redirect_uri=${REDIRECT_URI}&response_type=code&scope=${SCOPE}`;
     window.location.href = authUrl;
+  };
+
+  const handleLogout = () => {
+    setAccessToken(null);
+    setRefreshToken(null);
+    localStorage.removeItem('stravaAccessToken');
+    localStorage.removeItem('stravaRefreshToken');
+    setIsAuthenticated(false);
   };
 
   if (!isAuthenticated) {
