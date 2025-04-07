@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Card, CardHeader, CardTitle, CardContent } from './ui/card';
 import { Input } from './ui/input';
 import { Calendar, Target, Bike, TrendingUp, Edit2 } from 'lucide-react';
@@ -26,10 +26,71 @@ const StravaTracker = () => {
     return savedGoal ? parseInt(savedGoal) : DEFAULT_GOAL;
   });
 
+  const isFetchingActivities = useRef(false); // Ref to track if fetchActivities is running
+
+  const fetchActivities = useCallback(async () => {
+    if (!accessToken || isFetchingActivities.current) return;
+
+    isFetchingActivities.current = true; // Set the flag to true
+
+    try {
+      const startOfYear = new Date(new Date().getFullYear(), 0, 1).getTime() / 1000;
+      let page = 1;
+      let allActivities = [];
+      let hasMoreActivities = true;
+
+      while (hasMoreActivities) {
+        const response = await fetch(
+          `https://www.strava.com/api/v3/athlete/activities?after=${startOfYear}&per_page=200&page=${page}`,
+          {
+            headers: {
+              Authorization: `Bearer ${accessToken}`,
+            },
+          }
+        );
+
+        if (response.status === 401) {
+          // Access token is invalid or expired, refresh it
+          await refreshAccessToken();
+          isFetchingActivities.current = false; // Reset the flag
+          return fetchActivities(); // Retry after refreshing the token
+        }
+
+        const activities = await response.json();
+        if (activities.errors && activities.errors.some(err => err.code === 'invalid')) {
+          console.error('Invalid access token. User needs to reauthenticate.');
+          handleLogout();
+          isFetchingActivities.current = false; // Reset the flag
+          return;
+        }
+
+        if (activities.length > 0) {
+          allActivities = allActivities.concat(activities);
+          page++;
+        } else {
+          hasMoreActivities = false;
+        }
+      }
+
+      const totalDistance = allActivities.reduce((sum, activity) => {
+        if (isCyclingActivity(activity.type)) {
+          return sum + activity.distance / 1000;
+        }
+        return sum;
+      }, 0);
+
+      setTotalKm(totalDistance);
+    } catch (error) {
+      console.error('Error fetching activities:', error);
+    } finally {
+      isFetchingActivities.current = false; // Reset the flag
+    }
+  }, [accessToken]); // Memoize the function with accessToken as a dependency
+
   useEffect(() => {
     if (accessToken) {
       setIsAuthenticated(true);
-      fetchActivities();
+      fetchActivities(); // Call the memoized function
     } else {
       const urlParams = new URLSearchParams(window.location.search);
       const authCode = urlParams.get('code');
@@ -38,7 +99,7 @@ const StravaTracker = () => {
         exchangeToken(authCode);
       }
     }
-  }, [accessToken]);
+  }, [accessToken, fetchActivities]); // Add fetchActivities to the dependency array
 
   useEffect(() => {
     localStorage.setItem('cyclingYearGoal', yearGoal.toString());
@@ -110,59 +171,6 @@ const StravaTracker = () => {
       window.history.replaceState({}, '', newUrl);
     } catch (error) {
       console.error('Error exchanging token:', error);
-    }
-  };
-
-  const fetchActivities = async () => {
-    if (!accessToken) return;
-
-    try {
-      const startOfYear = new Date(new Date().getFullYear(), 0, 1).getTime() / 1000;
-      let page = 1;
-      let allActivities = [];
-      let hasMoreActivities = true;
-
-      while (hasMoreActivities) {
-        const response = await fetch(
-          `https://www.strava.com/api/v3/athlete/activities?after=${startOfYear}&per_page=200&page=${page}`,
-          {
-            headers: {
-              Authorization: `Bearer ${accessToken}`,
-            },
-          }
-        );
-
-        if (response.status === 401) {
-          // Access token is invalid or expired, refresh it
-          await refreshAccessToken();
-          return fetchActivities(); // Retry after refreshing the token
-        }
-
-        const activities = await response.json();
-        if (activities.errors && activities.errors.some(err => err.code === 'invalid')) {
-          console.error('Invalid access token. User needs to reauthenticate.');
-          handleLogout();
-          return;
-        }
-
-        if (activities.length > 0) {
-          allActivities = allActivities.concat(activities);
-          page++;
-        } else {
-          hasMoreActivities = false;
-        }
-      }
-
-      const totalDistance = allActivities.reduce((sum, activity) => {
-        if (isCyclingActivity(activity.type)) {
-          return sum + activity.distance / 1000;
-        }
-        return sum;
-      }, 0);
-
-      setTotalKm(totalDistance);
-    } catch (error) {
-      console.error('Error fetching activities:', error);
     }
   };
 
