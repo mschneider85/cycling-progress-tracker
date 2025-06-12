@@ -50,10 +50,8 @@ const StravaTracker = () => {
         );
 
         if (response.status === 401) {
-          // Access token is invalid or expired, refresh it
           await refreshAccessToken();
-          isFetchingActivities.current = false; // Reset the flag
-          return fetchActivities(); // Retry after refreshing the token
+          return;
         }
 
         const activities = await response.json();
